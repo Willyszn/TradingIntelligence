@@ -1,0 +1,53 @@
+application:
+  name: trading-intelligence
+  mode: research
+
+objective:
+  primary_target: forward_risk_adjusted_return
+  prediction_horizon_bars: 3
+  opportunity_window_bars: [1, 5]
+
+risk:
+  account_equity: null
+  risk_per_trade_pct: null
+  max_position_value_pct: 10.0
+  default_stop_method: user_supplied
+
+research:
+  markets:
+    - us_equities
+    - fx_major
+    - crypto_liquid
+    - major_futures
+    - major_etfs
+  cost_bps_per_side: 5.0
+  walk_forward:
+    train_size: 1000
+    test_size: 100
+    step: 100
+
+models:
+  random_state: 42
+  min_training_rows: 250
+  quant_feature_windows: [5, 20, 60]
+  compare_quant_only: true
+  compare_sentiment_only: true
+  compare_combined: true
+  compare_regime_aware: true
+
+execution:
+  enabled: false
+  mode: manual_only
+  broker_adapters: []
+
+data:
+  price_provider: csv
+  news_provider: csv
+  raw_path: data/raw
+  processed_path: data/processed
+  point_in_time_required: true
+
+backtest:
+  signal_at_close: true
+  default_holding_bars: 3
+  allow_short: true
