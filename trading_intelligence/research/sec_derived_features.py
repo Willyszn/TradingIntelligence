@@ -30,8 +30,11 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
     }
 
     missing = sorted(required - set(observations.columns))
+
     if missing:
-        raise ValueError(f"SEC observations missing columns: {missing}")
+        raise ValueError(
+            f"SEC observations missing columns: {missing}"
+        )
 
     out = observations.copy()
 
@@ -40,7 +43,11 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     ).astype("Int64")
 
-    for column in ["start", "end", "information_time"]:
+    for column in [
+        "start",
+        "end",
+        "information_time",
+    ]:
         out[column] = pd.to_datetime(
             out[column],
             utc=True,
@@ -69,9 +76,9 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
 
 
 def _latest_revision_per_period(
-    group: pd.DataFrame,
+    observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    work = group.copy().reset_index(drop=True)
+    work = observations.copy()
 
     work = work.sort_values(
         PERIOD_KEYS + ["information_time"],
@@ -93,10 +100,66 @@ def _latest_revision_per_period(
     )
 
 
+def _adjacent_quarter(
+    current_end: pd.Timestamp,
+    previous_end: pd.Timestamp,
+) -> bool:
+    if pd.isna(current_end) or pd.isna(previous_end):
+        return False
+
+    gap = (current_end - previous_end).days
+
+    return 70 <= gap <= 110
+
+
+def _year_apart(
+    current_end: pd.Timestamp,
+    previous_end: pd.Timestamp,
+) -> bool:
+    if pd.isna(current_end) or pd.isna(previous_end):
+        return False
+
+    gap = (current_end - previous_end).days
+
+    return 300 <= gap <= 430
+
+
+def _period_mask(
+    out: pd.DataFrame,
+    row: pd.Series,
+) -> pd.Series:
+    mask = (
+        (out["cik"] == row["cik"])
+        & (out["metric"] == row["metric"])
+        & (out["unit"] == row["unit"])
+        & (
+            out["reporting_kind"]
+            == row["reporting_kind"]
+        )
+        & (
+            out["duration_kind"]
+            == row["duration_kind"]
+        )
+        & (
+            out["start"] == row["start"]
+        )
+        & (
+            out["end"] == row["end"]
+        )
+        & (
+            out["information_time"]
+            == row["information_time"]
+        )
+    )
+
+    return mask
+
+
 def add_qoq_growth(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
     out = _normalise(observations)
+
     out["qoq_growth"] = np.nan
 
     for _, group in out.groupby(
@@ -112,53 +175,41 @@ def add_qoq_growth(
             continue
 
         q = _latest_revision_per_period(q)
-        q = q.sort_values(
-            "end",
-            kind="mergesort",
-        ).reset_index(drop=True)
 
-        prior = q["val_num"].shift(1)
+        for position in range(1, len(q)):
+            current = q.iloc[position]
+            previous = q.iloc[position - 1]
 
-        growth = np.where(
-            prior.notna() & prior.ne(0),
-            q["val_num"] / prior - 1.0,
-            np.nan,
-        )
+            if not _adjacent_quarter(
+                current["end"],
+                previous["end"],
+            ):
+                continue
 
-        # Match by economic period identity, not DataFrame index.
-        for source_idx, value in zip(
-            q.index,
-            growth,
-            strict=True,
-        ):
-            start = q.loc[source_idx, "start"]
-            end = q.loc[source_idx, "end"]
+            denominator = previous["val_num"]
 
-            mask = (
-                (out["cik"] == q.loc[source_idx, "cik"])
-                & (out["metric"] == q.loc[source_idx, "metric"])
-                & (out["unit"] == q.loc[source_idx, "unit"])
-                & (out["start"] == start)
-                & (out["end"] == end)
-                & (
-                    out["duration_kind"]
-                    == q.loc[source_idx, "duration_kind"]
-                )
-                & (
-                    out["reporting_kind"]
-                    == q.loc[source_idx, "reporting_kind"]
-                )
+            if pd.isna(denominator) or denominator == 0:
+                continue
+
+            growth = (
+                current["val_num"]
+                / denominator
+                - 1.0
             )
 
-            out.loc[mask, "qoq_growth"] = value
+            out.loc[
+                _period_mask(out, current),
+                "qoq_growth",
+            ] = float(growth)
 
-    return out
+    return out.reset_index(drop=True)
 
 
 def add_yoy_growth(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
     out = _normalise(observations)
+
     out["yoy_growth"] = np.nan
 
     for _, group in out.groupby(
@@ -170,56 +221,45 @@ def add_yoy_growth(
             group["duration_kind"].eq("quarter")
         ].copy()
 
-        if q.empty:
+        if len(q) < 5:
             continue
 
         q = _latest_revision_per_period(q)
-        q = q.sort_values(
-            "end",
-            kind="mergesort",
-        ).reset_index(drop=True)
 
-        prior = q["val_num"].shift(4)
+        for position in range(4, len(q)):
+            current = q.iloc[position]
+            previous = q.iloc[position - 4]
 
-        growth = np.where(
-            prior.notna() & prior.ne(0),
-            q["val_num"] / prior - 1.0,
-            np.nan,
-        )
+            if not _year_apart(
+                current["end"],
+                previous["end"],
+            ):
+                continue
 
-        for source_idx, value in zip(
-            q.index,
-            growth,
-            strict=True,
-        ):
-            start = q.loc[source_idx, "start"]
-            end = q.loc[source_idx, "end"]
+            denominator = previous["val_num"]
 
-            mask = (
-                (out["cik"] == q.loc[source_idx, "cik"])
-                & (out["metric"] == q.loc[source_idx, "metric"])
-                & (out["unit"] == q.loc[source_idx, "unit"])
-                & (out["start"] == start)
-                & (out["end"] == end)
-                & (
-                    out["duration_kind"]
-                    == q.loc[source_idx, "duration_kind"]
-                )
-                & (
-                    out["reporting_kind"]
-                    == q.loc[source_idx, "reporting_kind"]
-                )
+            if pd.isna(denominator) or denominator == 0:
+                continue
+
+            growth = (
+                current["val_num"]
+                / denominator
+                - 1.0
             )
 
-            out.loc[mask, "yoy_growth"] = value
+            out.loc[
+                _period_mask(out, current),
+                "yoy_growth",
+            ] = float(growth)
 
-    return out
+    return out.reset_index(drop=True)
 
 
 def add_ttm(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
     out = _normalise(observations)
+
     out["ttm_value"] = np.nan
 
     for _, group in out.groupby(
@@ -231,82 +271,43 @@ def add_ttm(
             group["duration_kind"].eq("quarter")
         ].copy()
 
-        if q.empty:
+        if len(q) < 4:
             continue
 
-        q = q.sort_values(
-            ["end", "information_time"],
-            kind="mergesort",
-        ).reset_index(drop=True)
+        q = _latest_revision_per_period(q)
 
-        for _, row in q.iterrows():
-            known = q[
-                q["information_time"] <= row["information_time"]
-            ].copy()
+        for position in range(3, len(q)):
+            window = q.iloc[
+                position - 3 : position + 1
+            ]
 
-            latest_by_period = (
-                known.sort_values(
-                    ["end", "information_time"],
-                    kind="mergesort",
+            ends = window["end"].tolist()
+
+            if not all(
+                _adjacent_quarter(
+                    ends[i],
+                    ends[i - 1],
                 )
-                .groupby(
-                    ["start", "end"],
-                    dropna=False,
-                    as_index=False,
-                )
-                .tail(1)
-                .sort_values(
-                    "end",
-                    kind="mergesort",
-                )
-                .reset_index(drop=True)
+                for i in range(1, len(ends))
+            ):
+                continue
+
+            current = q.iloc[position]
+
+            value = float(
+                window["val_num"].sum()
             )
 
-            latest_four = latest_by_period.tail(4)
+            out.loc[
+                _period_mask(out, current),
+                "ttm_value",
+            ] = value
 
-            value = np.nan
+    out["ttm_available"] = (
+        out["ttm_value"].notna()
+    )
 
-            if len(latest_four) == 4:
-                ends = latest_four["end"].tolist()
-
-                gaps = [
-                    (ends[i] - ends[i - 1]).days
-                    for i in range(1, len(ends))
-                ]
-
-                sequential = all(
-                    70 <= gap <= 110
-                    for gap in gaps
-                )
-
-                if sequential:
-                    value = float(
-                        latest_four["val_num"].sum()
-                    )
-
-            mask = (
-                (out["cik"] == row["cik"])
-                & (out["metric"] == row["metric"])
-                & (out["unit"] == row["unit"])
-                & (out["start"] == row["start"])
-                & (out["end"] == row["end"])
-                & (
-                    out["duration_kind"]
-                    == row["duration_kind"]
-                )
-                & (
-                    out["reporting_kind"]
-                    == row["reporting_kind"]
-                )
-                & (
-                    out["information_time"]
-                    == row["information_time"]
-                )
-            )
-
-            out.loc[mask, "ttm_value"] = value
-
-    return out
+    return out.reset_index(drop=True)
 
 
 def add_all_derived_features(
@@ -315,7 +316,5 @@ def add_all_derived_features(
     out = add_qoq_growth(observations)
     out = add_yoy_growth(out)
     out = add_ttm(out)
-
-    out["ttm_available"] = out["ttm_value"].notna()
 
     return out.reset_index(drop=True)

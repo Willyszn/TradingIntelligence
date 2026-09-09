@@ -31,7 +31,9 @@ def _normalise_decisions(
 
     out = decisions.copy()
 
-    out["symbol"] = out["symbol"].astype(str)
+    out["symbol"] = (
+        out["symbol"].astype(str)
+    )
 
     out["decision_time"] = pd.to_datetime(
         out["decision_time"],
@@ -58,6 +60,11 @@ def _normalise_decisions(
             dtype=np.int64,
         )
 
+    if out["_decision_id"].duplicated().any():
+        raise ValueError(
+            "_decision_id must be unique."
+        )
+
     return out.reset_index(drop=True)
 
 
@@ -80,7 +87,8 @@ def _prepare_sec(
 
     if missing:
         raise ValueError(
-            f"SEC observations missing columns: {missing}"
+            "SEC observations missing columns: "
+            f"{missing}"
         )
 
     out = observations.copy()
@@ -90,23 +98,16 @@ def _prepare_sec(
         errors="coerce",
     ).astype("Int64")
 
-    out["information_time"] = pd.to_datetime(
-        out["information_time"],
-        utc=True,
-        errors="coerce",
-    )
-
-    out["start"] = pd.to_datetime(
-        out["start"],
-        utc=True,
-        errors="coerce",
-    )
-
-    out["end"] = pd.to_datetime(
-        out["end"],
-        utc=True,
-        errors="coerce",
-    )
+    for column in [
+        "start",
+        "end",
+        "information_time",
+    ]:
+        out[column] = pd.to_datetime(
+            out[column],
+            utc=True,
+            errors="coerce",
+        )
 
     out["val_num"] = pd.to_numeric(
         out["val_num"],
@@ -118,20 +119,33 @@ def _prepare_sec(
             "cik",
             "metric",
             "unit",
-            "information_time",
             "end",
+            "information_time",
             "val_num",
         ]
     ).copy()
 
-    return add_period_semantics(
-        out
-    ).reset_index(drop=True)
+    return (
+        add_period_semantics(out)
+        .reset_index(drop=True)
+    )
 
 
-def _latest_revision_per_period(
+def _pit_snapshot(
     observations: pd.DataFrame,
+    decision_time: pd.Timestamp,
 ) -> pd.DataFrame:
+    # CRITICAL:
+    # filter by information_time FIRST.
+    # No globally latest revision is allowed to leak backward.
+    known = observations[
+        observations["information_time"]
+        <= decision_time
+    ].copy()
+
+    if known.empty:
+        return known
+
     keys = [
         "cik",
         "metric",
@@ -142,13 +156,12 @@ def _latest_revision_per_period(
         "end",
     ]
 
-    work = observations.sort_values(
-        keys + ["information_time"],
-        kind="mergesort",
-    )
-
     return (
-        work.groupby(
+        known.sort_values(
+            keys + ["information_time"],
+            kind="mergesort",
+        )
+        .groupby(
             keys,
             dropna=False,
             as_index=False,
@@ -158,12 +171,14 @@ def _latest_revision_per_period(
     )
 
 
-def _sec_features_for_one_decision(
+def _build_one_sec_snapshot(
     decision: pd.Series,
     observations: pd.DataFrame,
 ) -> dict:
     result = {
-        "_decision_id": decision["_decision_id"]
+        "_decision_id": decision[
+            "_decision_id"
+        ]
     }
 
     cik = decision.get("cik")
@@ -171,38 +186,33 @@ def _sec_features_for_one_decision(
     if pd.isna(cik):
         return result
 
-    obs = observations[
+    company_obs = observations[
         observations["cik"] == int(cik)
     ].copy()
 
-    if obs.empty:
+    if company_obs.empty:
         return result
 
-    obs = obs[
-        obs["information_time"]
-        <= decision["decision_time"]
-    ].copy()
-
-    if obs.empty:
-        return result
-
-    obs = _latest_revision_per_period(
-        obs
+    snapshot = _pit_snapshot(
+        company_obs,
+        decision["decision_time"],
     )
 
+    if snapshot.empty:
+        return result
+
     for metric in sorted(
-        obs["metric"].dropna().unique()
+        snapshot["metric"]
+        .dropna()
+        .unique()
     ):
-        metric_rows = obs[
-            obs["metric"] == metric
+        metric_rows = snapshot[
+            snapshot["metric"] == metric
         ].copy()
 
-        if metric_rows.empty:
-            continue
-
-        # ----------------------------------------------------
-        # Latest known instant fact
-        # ----------------------------------------------------
+        # -----------------------------
+        # Latest instant fact
+        # -----------------------------
         instant = metric_rows[
             metric_rows["reporting_kind"]
             == "instant"
@@ -210,10 +220,7 @@ def _sec_features_for_one_decision(
 
         if not instant.empty:
             instant = instant.sort_values(
-                [
-                    "end",
-                    "information_time",
-                ],
+                "end",
                 kind="mergesort",
             )
 
@@ -221,7 +228,9 @@ def _sec_features_for_one_decision(
 
             result[
                 f"sec_{metric}_instant"
-            ] = float(row["val_num"])
+            ] = float(
+                row["val_num"]
+            )
 
             result[
                 f"sec_{metric}_instant_age_days"
@@ -230,9 +239,9 @@ def _sec_features_for_one_decision(
                 - row["information_time"]
             ).total_seconds() / 86400.0
 
-        # ----------------------------------------------------
-        # Latest known quarterly duration
-        # ----------------------------------------------------
+        # -----------------------------
+        # Latest quarterly observation
+        # -----------------------------
         quarters = metric_rows[
             metric_rows["duration_kind"]
             == "quarter"
@@ -242,70 +251,76 @@ def _sec_features_for_one_decision(
             continue
 
         quarters = quarters.sort_values(
-            [
-                "end",
-                "information_time",
-            ],
+            "end",
             kind="mergesort",
         )
 
-        latest_q = quarters.iloc[-1]
+        latest = quarters.iloc[-1]
 
         result[
             f"sec_{metric}_quarter"
-        ] = float(latest_q["val_num"])
+        ] = float(
+            latest["val_num"]
+        )
 
         result[
             f"sec_{metric}_quarter_age_days"
         ] = (
             decision["decision_time"]
-            - latest_q["information_time"]
+            - latest["information_time"]
         ).total_seconds() / 86400.0
 
-        # Derived features are calculated AFTER PIT filtering.
+        # Derived features operate on the PIT
+        # snapshot, never on today's revised history.
         derived = add_all_derived_features(
             metric_rows
         )
 
-        latest_rows = derived[
+        latest_derived = derived[
             (
                 derived["start"]
-                == latest_q["start"]
+                == latest["start"]
             )
             & (
                 derived["end"]
-                == latest_q["end"]
+                == latest["end"]
             )
             & (
                 derived["information_time"]
-                == latest_q["information_time"]
+                == latest["information_time"]
             )
         ]
 
-        if latest_rows.empty:
+        if latest_derived.empty:
             continue
 
-        latest = latest_rows.iloc[-1]
+        row = latest_derived.iloc[-1]
 
-        if pd.notna(latest["qoq_growth"]):
+        if pd.notna(
+            row["qoq_growth"]
+        ):
             result[
                 f"sec_{metric}_qoq_growth"
             ] = float(
-                latest["qoq_growth"]
+                row["qoq_growth"]
             )
 
-        if pd.notna(latest["yoy_growth"]):
+        if pd.notna(
+            row["yoy_growth"]
+        ):
             result[
                 f"sec_{metric}_yoy_growth"
             ] = float(
-                latest["yoy_growth"]
+                row["yoy_growth"]
             )
 
-        if pd.notna(latest["ttm_value"]):
+        if pd.notna(
+            row["ttm_value"]
+        ):
             result[
                 f"sec_{metric}_ttm"
             ] = float(
-                latest["ttm_value"]
+                row["ttm_value"]
             )
 
     return result
@@ -323,22 +338,32 @@ def build_sec_pit_features(
         observations
     )
 
-    features = [
-        _sec_features_for_one_decision(
-            row,
+    rows = [
+        _build_one_sec_snapshot(
+            decision,
             obs,
         )
-        for _, row in dec.iterrows()
+        for _, decision in dec.iterrows()
     ]
 
-    if not features:
+    result = pd.DataFrame(
+        rows
+    )
+
+    if result.empty:
         return pd.DataFrame(
             columns=["_decision_id"]
         )
 
-    return pd.DataFrame(
-        features
-    )
+    if result[
+        "_decision_id"
+    ].duplicated().any():
+        raise AssertionError(
+            "SEC feature builder returned "
+            "duplicate decision IDs."
+        )
+
+    return result
 
 
 def build_fred_pit_features(
@@ -374,14 +399,15 @@ def build_fred_pit_features(
     for decision_id, group in aligned.groupby(
         "_decision_id",
         sort=False,
-        dropna=False,
     ):
         row = {
             "_decision_id": decision_id
         }
 
         for _, item in group.iterrows():
-            if not bool(item["available"]):
+            if not bool(
+                item["available"]
+            ):
                 continue
 
             series_id = str(
@@ -390,7 +416,9 @@ def build_fred_pit_features(
 
             row[
                 f"macro_{series_id}"
-            ] = float(item["value"])
+            ] = float(
+                item["value"]
+            )
 
             if pd.notna(
                 item["observation_date"]
@@ -419,9 +447,17 @@ def build_fred_pit_features(
 
         rows.append(row)
 
-    return pd.DataFrame(
-        rows
-    )
+    result = pd.DataFrame(rows)
+
+    if result[
+        "_decision_id"
+    ].duplicated().any():
+        raise AssertionError(
+            "FRED feature builder returned "
+            "duplicate decision IDs."
+        )
+
+    return result
 
 
 def add_three_day_market_labels(
@@ -448,13 +484,27 @@ def add_three_day_market_labels(
 
     out = market.copy()
 
-    out["symbol"] = out["symbol"].astype(str)
+    out["symbol"] = (
+        out["symbol"].astype(str)
+    )
 
     out["timestamp"] = pd.to_datetime(
         out["timestamp"],
         utc=True,
         errors="coerce",
     )
+
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    ]:
+        out[column] = pd.to_numeric(
+            out[column],
+            errors="coerce",
+        )
 
     out = out.dropna(
         subset=[
@@ -472,8 +522,8 @@ def add_three_day_market_labels(
         ["symbol", "timestamp"]
     ).any():
         raise ValueError(
-            "Market data contains duplicate "
-            "symbol/timestamp observations."
+            "Duplicate market "
+            "symbol/timestamp rows."
         )
 
     out = out.sort_values(
@@ -484,11 +534,17 @@ def add_three_day_market_labels(
         kind="mergesort",
     ).reset_index(drop=True)
 
-    out["decision_time"] = out["timestamp"]
-
     grouped = out.groupby(
         "symbol",
         sort=False,
+    )
+
+    out["decision_time"] = (
+        out["timestamp"]
+    )
+
+    out["entry_timestamp"] = (
+        grouped["timestamp"].shift(-1)
     )
 
     out["entry_price"] = (
@@ -509,12 +565,30 @@ def add_three_day_market_labels(
         - 1.0
     )
 
+    out["forward_return"] = (
+        out["target_return"]
+    )
+
     out["forward_positive"] = (
         out["target_return"] > 0
-    )
+    ).astype("Int64")
 
     out["label_horizon_sessions"] = 3
     out["decision_to_entry_sessions"] = 1
+
+    invalid_entry = (
+        out["entry_timestamp"].notna()
+        & (
+            out["entry_timestamp"]
+            <= out["decision_time"]
+        )
+    )
+
+    if invalid_entry.any():
+        raise AssertionError(
+            "Market entry timestamp is not "
+            "strictly after decision timestamp."
+        )
 
     return out
 
@@ -533,6 +607,7 @@ def build_unified_research_panel(
         subset=[
             "entry_price",
             "exit_price",
+            "target_timestamp",
         ]
     ).copy()
 
@@ -549,14 +624,15 @@ def build_unified_research_panel(
     # Security master
     # --------------------------------------------------------
     if security_master is not None:
-        master_required = {
+        required = {
             "symbol",
             "cik",
         }
 
         missing = sorted(
-            master_required
-            - set(security_master.columns)
+            required - set(
+                security_master.columns
+            )
         )
 
         if missing:
@@ -569,10 +645,10 @@ def build_unified_research_panel(
             security_master[
                 ["symbol", "cik"]
             ]
+            .copy()
             .drop_duplicates(
                 "symbol"
             )
-            .copy()
         )
 
         master["symbol"] = (
@@ -588,41 +664,60 @@ def build_unified_research_panel(
             master,
             on="symbol",
             how="left",
-            suffixes=("", "_master"),
+            suffixes=(
+                "",
+                "_master",
+            ),
+            validate="many_to_one",
         )
 
         if "cik_master" in panel.columns:
             if "cik" not in panel.columns:
-                panel["cik"] = panel[
-                    "cik_master"
-                ]
-            else:
-                panel["cik"] = panel[
-                    "cik"
-                ].fillna(
+                panel["cik"] = (
                     panel["cik_master"]
+                )
+            else:
+                panel["cik"] = (
+                    panel["cik"]
+                    .fillna(
+                        panel["cik_master"]
+                    )
                 )
 
             panel = panel.drop(
                 columns=["cik_master"]
             )
 
-    # --------------------------------------------------------
-    # SEC PIT
-    # --------------------------------------------------------
+    # Make missing CIK an unavailable SEC feature,
+    # not a pipeline error.
     if sec_observations is not None:
-        sec_features = (
-            build_sec_pit_features(
-                panel[
-                    [
-                        "_decision_id",
-                        "symbol",
-                        "decision_time",
-                        "cik",
-                    ]
-                ],
-                sec_observations,
+        sec_decisions = panel[
+            [
+                "_decision_id",
+                "symbol",
+                "decision_time",
+            ]
+        ].copy()
+
+        if "cik" in panel.columns:
+            sec_decisions["cik"] = (
+                panel["cik"]
             )
+
+        else:
+            sec_decisions["cik"] = (
+                pd.Series(
+                    pd.array(
+                        [pd.NA] * len(panel),
+                        dtype="Int64",
+                    ),
+                    index=panel.index,
+                )
+            )
+
+        sec_features = build_sec_pit_features(
+            sec_decisions,
+            sec_observations,
         )
 
         panel = panel.merge(
@@ -657,26 +752,31 @@ def build_unified_research_panel(
         )
 
     # --------------------------------------------------------
-    # Universal PIT assertions
+    # Final invariants
     # --------------------------------------------------------
-    if "information_time" in panel.columns:
-        information_time = pd.to_datetime(
-            panel["information_time"],
-            utc=True,
-            errors="coerce",
+    if panel[
+        "_decision_id"
+    ].duplicated().any():
+        raise AssertionError(
+            "Unified panel contains duplicate "
+            "decision IDs."
         )
 
-        if (
-            information_time.notna()
-            & (
-                information_time
-                > panel["decision_time"]
-            )
-        ).any():
-            raise AssertionError(
-                "SEC information timestamp after "
-                "decision timestamp."
-            )
+    if len(panel) != panel[
+        "_decision_id"
+    ].nunique():
+        raise AssertionError(
+            "Unified panel violates the "
+            "one-row-per-decision invariant."
+        )
+
+    if (
+        panel["entry_timestamp"]
+        <= panel["decision_time"]
+    ).any():
+        raise AssertionError(
+            "Entry occurs at or before decision time."
+        )
 
     return panel.drop(
         columns=["_decision_id"],
