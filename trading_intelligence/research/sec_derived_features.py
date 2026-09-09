@@ -1,7 +1,19 @@
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
+
+PERIOD_KEYS = [
+    "cik",
+    "metric",
+    "unit",
+    "reporting_kind",
+    "duration_kind",
+    "start",
+    "end",
+]
 
 
 def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
@@ -16,80 +28,95 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
         "duration_kind",
         "reporting_kind",
     }
+
     missing = sorted(required - set(observations.columns))
     if missing:
         raise ValueError(f"SEC observations missing columns: {missing}")
 
     out = observations.copy()
 
-    for col in ["start", "end", "information_time"]:
-        out[col] = pd.to_datetime(out[col], utc=True, errors="coerce")
+    out["cik"] = pd.to_numeric(
+        out["cik"],
+        errors="coerce",
+    ).astype("Int64")
 
-    out["val_num"] = pd.to_numeric(out["val_num"], errors="coerce")
-    out["cik"] = pd.to_numeric(out["cik"], errors="coerce").astype("Int64")
+    for column in ["start", "end", "information_time"]:
+        out[column] = pd.to_datetime(
+            out[column],
+            utc=True,
+            errors="coerce",
+        )
 
-    return out.dropna(
-        subset=["cik", "metric", "unit", "end", "information_time", "val_num"]
-    ).copy()
+    out["val_num"] = pd.to_numeric(
+        out["val_num"],
+        errors="coerce",
+    )
+
+    return (
+        out.dropna(
+            subset=[
+                "cik",
+                "metric",
+                "unit",
+                "end",
+                "information_time",
+                "val_num",
+            ]
+        )
+        .copy()
+        .reset_index(drop=True)
+    )
 
 
-def _latest_revision_per_period(group: pd.DataFrame) -> pd.DataFrame:
-    """Keep the latest known revision for each decision-information timestamp."""
-    period_keys = [
-        "cik",
-        "metric",
-        "unit",
-        "reporting_kind",
-        "duration_kind",
-        "start",
-        "end",
-    ]
+def _latest_revision_per_period(
+    group: pd.DataFrame,
+) -> pd.DataFrame:
+    work = group.copy().reset_index(drop=True)
 
-    work = group.sort_values(
-        period_keys + ["information_time"],
+    work = work.sort_values(
+        PERIOD_KEYS + ["information_time"],
         kind="mergesort",
-    ).copy()
+    )
 
     return (
         work.groupby(
-            period_keys,
+            PERIOD_KEYS,
             dropna=False,
             as_index=False,
         )
         .tail(1)
         .sort_values(
-            ["cik", "metric", "unit", "end", "information_time"],
+            ["end", "information_time"],
             kind="mergesort",
         )
         .reset_index(drop=True)
     )
 
 
-def add_qoq_growth(observations: pd.DataFrame) -> pd.DataFrame:
-    """Add quarter-over-quarter growth using only latest-known prior quarters."""
+def add_qoq_growth(
+    observations: pd.DataFrame,
+) -> pd.DataFrame:
     out = _normalise(observations)
-
     out["qoq_growth"] = np.nan
 
-    for keys, group in out.groupby(
+    for _, group in out.groupby(
         ["cik", "metric", "unit"],
         dropna=False,
         sort=False,
     ):
-        q = group[group["duration_kind"].eq("quarter")].copy()
+        q = group[
+            group["duration_kind"].eq("quarter")
+        ].copy()
+
         if q.empty:
             continue
 
         q = _latest_revision_per_period(q)
-
-        # Use period-end ordering, then compare each quarter to the prior
-        # economic quarter. Revisions remain anchored to information_time.
         q = q.sort_values(
-            ["end", "information_time"],
+            "end",
             kind="mergesort",
-        ).copy()
+        ).reset_index(drop=True)
 
-        values = q["val_num"].to_numpy(dtype=float)
         prior = q["val_num"].shift(1)
 
         growth = np.where(
@@ -98,15 +125,40 @@ def add_qoq_growth(observations: pd.DataFrame) -> pd.DataFrame:
             np.nan,
         )
 
-        out.loc[q.index, "qoq_growth"] = growth
+        # Match by economic period identity, not DataFrame index.
+        for source_idx, value in zip(
+            q.index,
+            growth,
+            strict=True,
+        ):
+            start = q.loc[source_idx, "start"]
+            end = q.loc[source_idx, "end"]
+
+            mask = (
+                (out["cik"] == q.loc[source_idx, "cik"])
+                & (out["metric"] == q.loc[source_idx, "metric"])
+                & (out["unit"] == q.loc[source_idx, "unit"])
+                & (out["start"] == start)
+                & (out["end"] == end)
+                & (
+                    out["duration_kind"]
+                    == q.loc[source_idx, "duration_kind"]
+                )
+                & (
+                    out["reporting_kind"]
+                    == q.loc[source_idx, "reporting_kind"]
+                )
+            )
+
+            out.loc[mask, "qoq_growth"] = value
 
     return out
 
 
-def add_yoy_growth(observations: pd.DataFrame) -> pd.DataFrame:
-    """Add year-over-year growth for quarterly observations."""
+def add_yoy_growth(
+    observations: pd.DataFrame,
+) -> pd.DataFrame:
     out = _normalise(observations)
-
     out["yoy_growth"] = np.nan
 
     for _, group in out.groupby(
@@ -114,14 +166,19 @@ def add_yoy_growth(observations: pd.DataFrame) -> pd.DataFrame:
         dropna=False,
         sort=False,
     ):
-        q = group[group["duration_kind"].eq("quarter")].copy()
+        q = group[
+            group["duration_kind"].eq("quarter")
+        ].copy()
+
         if q.empty:
             continue
 
         q = _latest_revision_per_period(q)
-        q = q.sort_values(["end", "information_time"], kind="mergesort")
+        q = q.sort_values(
+            "end",
+            kind="mergesort",
+        ).reset_index(drop=True)
 
-        # Four reported quarters back within the same economic series.
         prior = q["val_num"].shift(4)
 
         growth = np.where(
@@ -130,20 +187,39 @@ def add_yoy_growth(observations: pd.DataFrame) -> pd.DataFrame:
             np.nan,
         )
 
-        out.loc[q.index, "yoy_growth"] = growth
+        for source_idx, value in zip(
+            q.index,
+            growth,
+            strict=True,
+        ):
+            start = q.loc[source_idx, "start"]
+            end = q.loc[source_idx, "end"]
+
+            mask = (
+                (out["cik"] == q.loc[source_idx, "cik"])
+                & (out["metric"] == q.loc[source_idx, "metric"])
+                & (out["unit"] == q.loc[source_idx, "unit"])
+                & (out["start"] == start)
+                & (out["end"] == end)
+                & (
+                    out["duration_kind"]
+                    == q.loc[source_idx, "duration_kind"]
+                )
+                & (
+                    out["reporting_kind"]
+                    == q.loc[source_idx, "reporting_kind"]
+                )
+            )
+
+            out.loc[mask, "yoy_growth"] = value
 
     return out
 
 
-def add_ttm(observations: pd.DataFrame) -> pd.DataFrame:
-    """Add TTM values from four consecutive quarterly observations.
-
-    TTM is calculated independently for each observation revision.
-    A quarter contributes only when that quarter was already known by
-    the current observation's information_time.
-    """
+def add_ttm(
+    observations: pd.DataFrame,
+) -> pd.DataFrame:
     out = _normalise(observations)
-
     out["ttm_value"] = np.nan
 
     for _, group in out.groupby(
@@ -151,20 +227,22 @@ def add_ttm(observations: pd.DataFrame) -> pd.DataFrame:
         dropna=False,
         sort=False,
     ):
-        q = group[group["duration_kind"].eq("quarter")].copy()
+        q = group[
+            group["duration_kind"].eq("quarter")
+        ].copy()
+
         if q.empty:
             continue
 
         q = q.sort_values(
             ["end", "information_time"],
             kind="mergesort",
-        ).copy()
+        ).reset_index(drop=True)
 
-        rows = []
-
-        # Each source row is treated as its own PIT decision timestamp.
-        for idx, row in q.iterrows():
-            known = q[q["information_time"] <= row["information_time"]].copy()
+        for _, row in q.iterrows():
+            known = q[
+                q["information_time"] <= row["information_time"]
+            ].copy()
 
             latest_by_period = (
                 known.sort_values(
@@ -177,44 +255,67 @@ def add_ttm(observations: pd.DataFrame) -> pd.DataFrame:
                     as_index=False,
                 )
                 .tail(1)
-                .sort_values("end", kind="mergesort")
+                .sort_values(
+                    "end",
+                    kind="mergesort",
+                )
+                .reset_index(drop=True)
             )
 
             latest_four = latest_by_period.tail(4)
 
-            if len(latest_four) != 4:
-                value = np.nan
-            else:
+            value = np.nan
+
+            if len(latest_four) == 4:
                 ends = latest_four["end"].tolist()
 
-                # Require four genuinely sequential quarters.
                 gaps = [
                     (ends[i] - ends[i - 1]).days
                     for i in range(1, len(ends))
                 ]
 
-                sequential = all(70 <= gap <= 110 for gap in gaps)
-
-                value = (
-                    float(latest_four["val_num"].sum())
-                    if sequential
-                    else np.nan
+                sequential = all(
+                    70 <= gap <= 110
+                    for gap in gaps
                 )
 
-            rows.append((idx, value))
+                if sequential:
+                    value = float(
+                        latest_four["val_num"].sum()
+                    )
 
-        for idx, value in rows:
-            out.loc[idx, "ttm_value"] = value
+            mask = (
+                (out["cik"] == row["cik"])
+                & (out["metric"] == row["metric"])
+                & (out["unit"] == row["unit"])
+                & (out["start"] == row["start"])
+                & (out["end"] == row["end"])
+                & (
+                    out["duration_kind"]
+                    == row["duration_kind"]
+                )
+                & (
+                    out["reporting_kind"]
+                    == row["reporting_kind"]
+                )
+                & (
+                    out["information_time"]
+                    == row["information_time"]
+                )
+            )
+
+            out.loc[mask, "ttm_value"] = value
 
     return out
 
 
-def add_all_derived_features(observations: pd.DataFrame) -> pd.DataFrame:
-    """Add QoQ, YoY, and TTM features while retaining raw SEC observations."""
+def add_all_derived_features(
+    observations: pd.DataFrame,
+) -> pd.DataFrame:
     out = add_qoq_growth(observations)
     out = add_yoy_growth(out)
     out = add_ttm(out)
 
     out["ttm_available"] = out["ttm_value"].notna()
 
-    return out
+    return out.reset_index(drop=True)

@@ -84,7 +84,8 @@ def test_alignment_excludes_future_vintage():
     assert first["value"] == 100
 
     assert bool(second["available"]) is True
-    assert second["value"] == 101
+    # By May 12, the newer May 1 economic observation is available.
+    assert second["value"] == 110
 
 
 def test_same_day_conservative_boundary():
