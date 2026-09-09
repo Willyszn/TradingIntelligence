@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
@@ -23,7 +23,7 @@ DEFAULT_UNIVERSES = {
         "fx_major", "fx", ("EURUSD", "USDJPY", "GBPUSD", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY")
     ),
     "crypto_liquid": MarketUniverse(
-        "crypto_liquid", "crypto", ("BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD", "XRPUSD", "ADAUSD", "DOGEUSD", "AVAXUSD", "LINKUSD", "LTCUSD")
+        "crypto_liquid", "crypto", ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "LTCUSDT")
     ),
     "major_futures": MarketUniverse(
         "major_futures", "future", ("ES", "NQ", "RTY", "CL", "GC", "ZN", "6E"), metadata={"note": "continuous-contract methodology must be defined by data provider"}
@@ -32,3 +32,4 @@ DEFAULT_UNIVERSES = {
         "major_etfs", "etf", ("SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "USO", "XLE", "XLK", "XLF")
     ),
 }
+
