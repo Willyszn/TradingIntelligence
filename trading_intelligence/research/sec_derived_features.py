@@ -16,7 +16,9 @@ PERIOD_KEYS = [
 ]
 
 
-def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
+def _normalise(
+    observations: pd.DataFrame,
+) -> pd.DataFrame:
     required = {
         "cik",
         "metric",
@@ -29,7 +31,9 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
         "reporting_kind",
     }
 
-    missing = sorted(required - set(observations.columns))
+    missing = sorted(
+        required - set(observations.columns)
+    )
 
     if missing:
         raise ValueError(
@@ -37,6 +41,13 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
         )
 
     out = observations.copy()
+
+    # Stable source-row identity.
+    if "__sec_source_id" not in out.columns:
+        out["__sec_source_id"] = np.arange(
+            len(out),
+            dtype=np.int64,
+        )
 
     out["cik"] = pd.to_numeric(
         out["cik"],
@@ -59,25 +70,30 @@ def _normalise(observations: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     )
 
-    return (
-        out.dropna(
-            subset=[
-                "cik",
-                "metric",
-                "unit",
-                "end",
-                "information_time",
-                "val_num",
-            ]
-        )
-        .copy()
-        .reset_index(drop=True)
+    out = out.dropna(
+        subset=[
+            "cik",
+            "metric",
+            "unit",
+            "end",
+            "information_time",
+            "val_num",
+        ]
+    ).copy()
+
+    return out.reset_index(
+        drop=True
     )
 
 
 def _latest_revision_per_period(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Return the latest revision per economic period.
+
+    This is used only as a calculation view. It never replaces the
+    caller's full observation frame.
+    """
     work = observations.copy()
 
     work = work.sort_values(
@@ -92,22 +108,25 @@ def _latest_revision_per_period(
             as_index=False,
         )
         .tail(1)
-        .sort_values(
-            ["end", "information_time"],
-            kind="mergesort",
-        )
         .reset_index(drop=True)
     )
 
 
-def _adjacent_quarter(
+def _quarter_adjacent(
     current_end: pd.Timestamp,
     previous_end: pd.Timestamp,
 ) -> bool:
-    if pd.isna(current_end) or pd.isna(previous_end):
+    if pd.isna(
+        current_end
+    ) or pd.isna(
+        previous_end
+    ):
         return False
 
-    gap = (current_end - previous_end).days
+    gap = (
+        current_end
+        - previous_end
+    ).days
 
     return 70 <= gap <= 110
 
@@ -116,79 +135,92 @@ def _year_apart(
     current_end: pd.Timestamp,
     previous_end: pd.Timestamp,
 ) -> bool:
-    if pd.isna(current_end) or pd.isna(previous_end):
+    if pd.isna(
+        current_end
+    ) or pd.isna(
+        previous_end
+    ):
         return False
 
-    gap = (current_end - previous_end).days
+    gap = (
+        current_end
+        - previous_end
+    ).days
 
     return 300 <= gap <= 430
 
 
-def _period_mask(
+def _write_by_source_id(
     out: pd.DataFrame,
-    row: pd.Series,
-) -> pd.Series:
-    mask = (
-        (out["cik"] == row["cik"])
-        & (out["metric"] == row["metric"])
-        & (out["unit"] == row["unit"])
-        & (
-            out["reporting_kind"]
-            == row["reporting_kind"]
-        )
-        & (
-            out["duration_kind"]
-            == row["duration_kind"]
-        )
-        & (
-            out["start"] == row["start"]
-        )
-        & (
-            out["end"] == row["end"]
-        )
-        & (
-            out["information_time"]
-            == row["information_time"]
-        )
-    )
-
-    return mask
+    source_id: int,
+    column: str,
+    value: float,
+) -> None:
+    out.loc[
+        out["__sec_source_id"]
+        == source_id,
+        column,
+    ] = value
 
 
 def add_qoq_growth(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    out = _normalise(observations)
+    out = _normalise(
+        observations
+    )
 
     out["qoq_growth"] = np.nan
 
     for _, group in out.groupby(
-        ["cik", "metric", "unit"],
+        [
+            "cik",
+            "metric",
+            "unit",
+        ],
         dropna=False,
         sort=False,
     ):
-        q = group[
-            group["duration_kind"].eq("quarter")
+        quarters = group[
+            group["duration_kind"]
+            == "quarter"
         ].copy()
 
-        if q.empty:
+        if quarters.empty:
             continue
 
-        q = _latest_revision_per_period(q)
+        latest = _latest_revision_per_period(
+            quarters
+        )
 
-        for position in range(1, len(q)):
-            current = q.iloc[position]
-            previous = q.iloc[position - 1]
+        latest = latest.sort_values(
+            "end",
+            kind="mergesort",
+        ).reset_index(drop=True)
 
-            if not _adjacent_quarter(
+        for position in range(
+            1,
+            len(latest),
+        ):
+            current = latest.iloc[position]
+            previous = latest.iloc[
+                position - 1
+            ]
+
+            if not _quarter_adjacent(
                 current["end"],
                 previous["end"],
             ):
                 continue
 
-            denominator = previous["val_num"]
+            denominator = previous[
+                "val_num"
+            ]
 
-            if pd.isna(denominator) or denominator == 0:
+            if (
+                pd.isna(denominator)
+                or denominator == 0
+            ):
                 continue
 
             growth = (
@@ -197,38 +229,65 @@ def add_qoq_growth(
                 - 1.0
             )
 
-            out.loc[
-                _period_mask(out, current),
+            _write_by_source_id(
+                out,
+                int(
+                    current[
+                        "__sec_source_id"
+                    ]
+                ),
                 "qoq_growth",
-            ] = float(growth)
+                float(growth),
+            )
 
-    return out.reset_index(drop=True)
+    return out.reset_index(
+        drop=True
+    )
 
 
 def add_yoy_growth(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    out = _normalise(observations)
+    out = _normalise(
+        observations
+    )
 
     out["yoy_growth"] = np.nan
 
     for _, group in out.groupby(
-        ["cik", "metric", "unit"],
+        [
+            "cik",
+            "metric",
+            "unit",
+        ],
         dropna=False,
         sort=False,
     ):
-        q = group[
-            group["duration_kind"].eq("quarter")
+        quarters = group[
+            group["duration_kind"]
+            == "quarter"
         ].copy()
 
-        if len(q) < 5:
+        if len(quarters) < 5:
             continue
 
-        q = _latest_revision_per_period(q)
+        latest = _latest_revision_per_period(
+            quarters
+        )
 
-        for position in range(4, len(q)):
-            current = q.iloc[position]
-            previous = q.iloc[position - 4]
+        latest = latest.sort_values(
+            "end",
+            kind="mergesort",
+        ).reset_index(drop=True)
+
+        for position in range(
+            4,
+            len(latest),
+        ):
+            current = latest.iloc[position]
+            previous = latest.iloc[
+                position - 4
+            ]
 
             if not _year_apart(
                 current["end"],
@@ -236,9 +295,14 @@ def add_yoy_growth(
             ):
                 continue
 
-            denominator = previous["val_num"]
+            denominator = previous[
+                "val_num"
+            ]
 
-            if pd.isna(denominator) or denominator == 0:
+            if (
+                pd.isna(denominator)
+                or denominator == 0
+            ):
                 continue
 
             growth = (
@@ -247,74 +311,131 @@ def add_yoy_growth(
                 - 1.0
             )
 
-            out.loc[
-                _period_mask(out, current),
+            _write_by_source_id(
+                out,
+                int(
+                    current[
+                        "__sec_source_id"
+                    ]
+                ),
                 "yoy_growth",
-            ] = float(growth)
+                float(growth),
+            )
 
-    return out.reset_index(drop=True)
+    return out.reset_index(
+        drop=True
+    )
 
 
 def add_ttm(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    out = _normalise(observations)
+    out = _normalise(
+        observations
+    )
 
     out["ttm_value"] = np.nan
 
     for _, group in out.groupby(
-        ["cik", "metric", "unit"],
+        [
+            "cik",
+            "metric",
+            "unit",
+        ],
         dropna=False,
         sort=False,
     ):
-        q = group[
-            group["duration_kind"].eq("quarter")
+        quarters = group[
+            group["duration_kind"]
+            == "quarter"
         ].copy()
 
-        if len(q) < 4:
+        if len(quarters) < 4:
             continue
 
-        q = _latest_revision_per_period(q)
+        latest = _latest_revision_per_period(
+            quarters
+        )
 
-        for position in range(3, len(q)):
-            window = q.iloc[
+        latest = latest.sort_values(
+            "end",
+            kind="mergesort",
+        ).reset_index(drop=True)
+
+        for position in range(
+            3,
+            len(latest),
+        ):
+            window = latest.iloc[
                 position - 3 : position + 1
             ]
 
-            ends = window["end"].tolist()
+            ends = window[
+                "end"
+            ].tolist()
 
             if not all(
-                _adjacent_quarter(
+                _quarter_adjacent(
                     ends[i],
                     ends[i - 1],
                 )
-                for i in range(1, len(ends))
+                for i in range(
+                    1,
+                    len(ends),
+                )
             ):
                 continue
 
-            current = q.iloc[position]
+            current = latest.iloc[
+                position
+            ]
 
             value = float(
                 window["val_num"].sum()
             )
 
-            out.loc[
-                _period_mask(out, current),
+            _write_by_source_id(
+                out,
+                int(
+                    current[
+                        "__sec_source_id"
+                    ]
+                ),
                 "ttm_value",
-            ] = value
+                value,
+            )
 
     out["ttm_available"] = (
         out["ttm_value"].notna()
     )
 
-    return out.reset_index(drop=True)
+    return out.reset_index(
+        drop=True
+    )
 
 
 def add_all_derived_features(
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    out = add_qoq_growth(observations)
-    out = add_yoy_growth(out)
-    out = add_ttm(out)
+    """Add derived features without collapsing source observations."""
+    out = add_qoq_growth(
+        observations
+    )
 
-    return out.reset_index(drop=True)
+    out = add_yoy_growth(
+        out
+    )
+
+    out = add_ttm(
+        out
+    )
+
+    # Internal lineage key is not a model feature.
+    return out.drop(
+        columns=[
+            "__sec_source_id"
+        ],
+        errors="ignore",
+    ).reset_index(
+        drop=True
+    )
