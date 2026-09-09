@@ -74,6 +74,51 @@ def _market():
                 "close": 109,
                 "volume": 1600,
             },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-02-15T21:00:00Z",
+                "open": 110,
+                "high": 111,
+                "low": 109,
+                "close": 110,
+                "volume": 1700,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-02-16T21:00:00Z",
+                "open": 111,
+                "high": 112,
+                "low": 110,
+                "close": 111,
+                "volume": 1800,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-02-20T21:00:00Z",
+                "open": 112,
+                "high": 113,
+                "low": 111,
+                "close": 112,
+                "volume": 1900,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-02-21T21:00:00Z",
+                "open": 113,
+                "high": 114,
+                "low": 112,
+                "close": 113,
+                "volume": 2000,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-02-22T21:00:00Z",
+                "open": 114,
+                "high": 115,
+                "low": 113,
+                "close": 114,
+                "volume": 2100,
+            },
         ]
     )
 
@@ -366,11 +411,13 @@ def test_no_future_information_is_used():
     ]
 
     assert (
-        before[
-            "sec_revenue_quarter"
-        ]
-        .eq(999)
-        .any()
+        bool(
+            before[
+                "sec_revenue_quarter"
+            ]
+            .eq(999)
+            .any()
+        )
         is False
     )
 

@@ -185,10 +185,13 @@ def test_sec_derived_features_preserve_both_revisions():
     )
 
     q4_initial = out[
-        (out["end"] == pd.Timestamp(
-            "2023-12-31",
-            tz="UTC",
-        ))
+        (out["metric"] == "revenue")
+        & (
+            out["end"] == pd.Timestamp(
+                "2023-12-31",
+                tz="UTC",
+            )
+        )
         & (
             out["information_time"]
             == pd.Timestamp(
@@ -198,10 +201,13 @@ def test_sec_derived_features_preserve_both_revisions():
     ]
 
     q4_revision = out[
-        (out["end"] == pd.Timestamp(
-            "2023-12-31",
-            tz="UTC",
-        ))
+        (out["metric"] == "revenue")
+        & (
+            out["end"] == pd.Timestamp(
+                "2023-12-31",
+                tz="UTC",
+            )
+        )
         & (
             out["information_time"]
             == pd.Timestamp(
