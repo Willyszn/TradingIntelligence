@@ -1,7 +1,12 @@
-# TradingIntelligence automatic GitHub sync
+﻿# TradingIntelligence automatic GitHub sync
 # Repository: C:\Users\willi\TradingIntelligence
 
 $ErrorActionPreference = "Stop"
+
+# Scheduled Task is non-interactive.
+# Never allow Git/GCM to wait for credential or UI input.
+$env:GIT_TERMINAL_PROMPT = "0"
+$env:GCM_INTERACTIVE = "Never"
 
 $Repo = "C:\Users\willi\TradingIntelligence"
 $LogDir = Join-Path $Repo "logs"
