@@ -1,0 +1,183 @@
+﻿Diagnose log at 2026-09-12T20:46:57Z
+
+AppPath: C:\Program Files\Git\mingw64\bin\git-credential-manager.exe
+InstallDir: C:\Program Files\Git\mingw64\bin\
+Version: 2.9.0+194ba290ce533465310d50f811684ab180536ae7
+
+------------
+Diagnostic: Environment
+Skipped: False
+Success: True
+Exception: None
+Log:
+OSType: Windows
+OSVersion: 10.0 (build 26200)
+Reading environment variables... OK
+ Variables:
+SystemDrive=C:
+ProgramFiles(x86)=C:\Program Files (x86)
+Path=C:\Program Files\Common Files\Oracle\Java\javapath;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Users\willi\Downloads\platform-tools-latest-windows\platform-tools;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Program Files\nodejs\;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\Git\cmd;C:\Program Files\PowerShell\7\;C:\Users\willi\AppData\Local\jcode\bin;C:\Users\willi\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\willi\AppData\Local\Programs\Python\Python311\;C:\Users\willi\AppData\Local\Programs\Python\Python313\Scripts\;C:\Users\willi\AppData\Local\Programs\Python\Python313\;C:\Users\willi\AppData\Local\Programs\Python\Launcher\;C:\Program Files\MySQL\MySQL Shell 8.0\bin\;C:\Users\willi\AppData\Local\Microsoft\WindowsApps;C:\Users\willi\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\willi\AppData\Roaming\npm;C:\Users\willi\AppData\Local\Programs\cursor\resources\app\bin;C:\Users\willi\AppData\Local\Kingsoft\WPS Office\12.1.0.27458\clitool;C:\Users\willi\AppData\Local\Microsoft\WinGet\Links;C:\Users\willi\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-N-125875-g5d4d3bdc61-win64-gpl\bin;C:\Users\willi\.lmstudio\bin
+ProgramW6432=C:\Program Files
+PROCESSOR_IDENTIFIER=AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD
+POWERSHELL_DISTRIBUTION_CHANNEL=MSI:Windows 10 Home Single Language
+TMP=C:\Users\willi\AppData\Local\Temp
+PROCESSOR_ARCHITECTURE=AMD64
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
+WSLENV=WT_SESSION:WT_PROFILE_ID:
+PROCESSOR_REVISION=1801
+TEMP=C:\Users\willi\AppData\Local\Temp
+USERPROFILE=C:\Users\willi
+CommonProgramFiles(x86)=C:\Program Files (x86)\Common Files
+LOGONSERVER=\\WILLYPUP
+WT_SESSION=df44b7b4-88d6-4077-be5f-69847f202d87
+USERNAME=willi
+SystemRoot=C:\WINDOWS
+FRED_API_KEY=0ef8e09a99b1e17f1721dbd02d516440
+OneDrive=C:\Users\willi\OneDrive
+CommonProgramFiles=C:\Program Files\Common Files
+WT_PROFILE_ID={61c54bbd-c2c6-5271-96e7-009a87ff44bf}
+ProgramData=C:\ProgramData
+HOMEPATH=\Users\willi
+OneDriveConsumer=C:\Users\willi\OneDrive
+COMPUTERNAME=WILLYPUP
+ALLUSERSPROFILE=C:\ProgramData
+CommonProgramW6432=C:\Program Files\Common Files
+PT8HOME=C:\Program Files\Cisco Packet Tracer 9.0.0
+SESSIONNAME=Console
+DriverData=C:\Windows\System32\Drivers\DriverData
+HOMEDRIVE=C:
+windir=C:\WINDOWS
+GIT_TRACE2_PARENT_SID=9aba2b29-b4ed-462d-bd5e-6591727ffd6c
+NUMBER_OF_PROCESSORS=8
+OS=Windows_NT
+VBOX_HWVIRTEX_IGNORE_SVM_IN_USE=1
+ProgramFiles=C:\Program Files
+ComSpec=C:\WINDOWS\system32\cmd.exe
+WPSCLI_HOME=C:\Users\willi\AppData\Local\Kingsoft\WPS Office\12.1.0.27458\clitool
+PSModulePath=C:\Users\willi\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+APPDATA=C:\Users\willi\AppData\Roaming
+USERDOMAIN=WILLYPUP
+PROCESSOR_LEVEL=23
+LOCALAPPDATA=C:\Users\willi\AppData\Local
+USERDOMAIN_ROAMINGPROFILE=WILLYPUP
+PUBLIC=C:\Users\Public
+
+
+------------
+Diagnostic: File system
+Skipped: False
+Success: True
+Exception: None
+Log:
+Temporary directory is 'C:\Users\willi\AppData\Local\Temp\'...
+Checking basic file I/O...
+Writing to temporary file 'C:\Users\willi\AppData\Local\Temp\7cc94b16b12b59e704899674'... OK
+Reading from temporary file 'C:\Users\willi\AppData\Local\Temp\7cc94b16b12b59e704899674'... OK
+Deleting temporary file 'C:\Users\willi\AppData\Local\Temp\7cc94b16b12b59e704899674'... OK
+Testing IFileSystem instance...
+UserHomePath: C:\Users\willi
+UserDataDirectoryPath: C:\Users\willi\.gcm
+GetCurrentDirectory(): C:\Users\willi\TradingIntelligence
+
+------------
+Diagnostic: Networking
+Skipped: False
+Success: True
+Exception: None
+Log:
+Checking networking and HTTP stack...
+Creating HTTP client... OK
+IsNetworkAvailable: True
+Sending HEAD request to http://example.com... OK
+Sending HEAD request to https://example.com... OK
+Acquiring free TCP port... OK
+Testing local HTTP loopback connections...
+Creating new HTTP listener for http://localhost:54045/... OK
+Waiting for loopback connection... OK
+Writing response... OK
+Waiting for response data... OK
+Loopback connection data OK
+
+------------
+Diagnostic: Git
+Skipped: False
+Success: True
+Exception: None
+Log:
+Getting Git version... OK
+Git version is '2.55.0.windows.4'
+Locating current repository...Git repository at 'C:/Users/willi/TradingIntelligence/.git'
+ OK
+Listing all Git configuration... OK
+Git configuration:
+file:C:/Program Files/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.required=true
+file:C:/Program Files/Git/etc/gitconfig	http.sslbackend=schannel
+file:C:/Program Files/Git/etc/gitconfig	core.autocrlf=true
+file:C:/Program Files/Git/etc/gitconfig	core.fscache=true
+file:C:/Program Files/Git/etc/gitconfig	core.symlinks=false
+file:C:/Program Files/Git/etc/gitconfig	pull.rebase=false
+file:C:/Program Files/Git/etc/gitconfig	credential.helper=manager
+file:C:/Program Files/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:C:/Program Files/Git/etc/gitconfig	init.defaultbranch=master
+file:C:/Users/willi/.gitconfig	user.email=198611874+Willyszn@users.noreply.github.com
+file:C:/Users/willi/.gitconfig	user.name=Willy
+file:.git/config	core.repositoryformatversion=0
+file:.git/config	core.filemode=false
+file:.git/config	core.bare=false
+file:.git/config	core.logallrefupdates=true
+file:.git/config	core.symlinks=false
+file:.git/config	core.ignorecase=true
+file:.git/config	remote.origin.url=https://github.com/Willyszn/TradingIntelligence.git
+file:.git/config	remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+file:.git/config	branch.main.remote=origin
+file:.git/config	branch.main.merge=refs/heads/main
+
+
+------------
+Diagnostic: Credential storage
+Skipped: False
+Success: True
+Exception: None
+Log:
+ICredentialStore instance is of type: CredentialStore
+Writing test credential... OK
+Reading test credential... OK
+Deleting test credential... OK
+
+------------
+Diagnostic: Microsoft authentication (AAD/MSA)
+Skipped: False
+Success: True
+Exception: None
+Log:
+Broker is not enabled.
+Gathering MSAL token cache data... OK
+CacheDirectory: C:\Users\willi\AppData\Local\.IdentityService
+CacheFileName: msal.cache
+CacheFilePath: C:\Users\willi\AppData\Local\.IdentityService\msal.cache
+Creating cache helper... OK
+Verifying MSAL token cache persistence... OK
+
+------------
+Diagnostic: GitHub API
+Skipped: False
+Success: False
+Exception:
+System.Net.Http.HttpRequestException: Response status code does not indicate success: 403 (rate limit exceeded).
+   at System.Net.Http.HttpResponseMessage.EnsureSuccessStatusCode()
+   at GitHub.GitHubRestApi.<GetMetaInfoAsync>d__5.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw()
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at GitHub.Diagnostics.GitHubApiDiagnostic.<RunInternalAsync>d__2.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw()
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at GitCredentialManager.Diagnostics.Diagnostic.<RunAsync>d__6.MoveNext()
+Log:
+Using 'https://github.com/' as API target.
+Querying '/meta' endpoint...
