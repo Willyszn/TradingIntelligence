@@ -236,6 +236,123 @@ def _sec():
     return pd.DataFrame(rows)
 
 
+def test_us_equity_labels_convert_daily_dates_to_exchange_session_times():
+    market = pd.DataFrame(
+        [
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-01-02T00:00:00Z",
+                "open": 100,
+                "high": 102,
+                "low": 99,
+                "close": 101,
+                "volume": 1000,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-01-03T00:00:00Z",
+                "open": 102,
+                "high": 104,
+                "low": 101,
+                "close": 103,
+                "volume": 1100,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-01-04T00:00:00Z",
+                "open": 104,
+                "high": 105,
+                "low": 103,
+                "close": 104,
+                "volume": 1200,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-01-05T00:00:00Z",
+                "open": 105,
+                "high": 107,
+                "low": 104,
+                "close": 106,
+                "volume": 1300,
+            },
+        ]
+    )
+
+    out = build_unified_research_panel(
+        market,
+        market_session="us_equity_daily",
+    )
+
+    first = out.iloc[0]
+
+    assert first["decision_time"] == pd.Timestamp(
+        "2024-01-02T21:00:00Z"
+    )
+    assert first["entry_timestamp"] == pd.Timestamp(
+        "2024-01-03T14:30:00Z"
+    )
+    assert first["target_timestamp"] == pd.Timestamp(
+        "2024-01-05T21:00:00Z"
+    )
+
+
+def test_us_equity_session_times_handle_dst():
+    market = pd.DataFrame(
+        [
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-03-08T00:00:00Z",
+                "open": 100,
+                "high": 102,
+                "low": 99,
+                "close": 101,
+                "volume": 1000,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-03-11T00:00:00Z",
+                "open": 102,
+                "high": 104,
+                "low": 101,
+                "close": 103,
+                "volume": 1100,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-03-12T00:00:00Z",
+                "open": 104,
+                "high": 105,
+                "low": 103,
+                "close": 104,
+                "volume": 1200,
+            },
+            {
+                "symbol": "AAA",
+                "timestamp": "2024-03-13T00:00:00Z",
+                "open": 105,
+                "high": 107,
+                "low": 104,
+                "close": 106,
+                "volume": 1300,
+            },
+        ]
+    )
+
+    out = build_unified_research_panel(
+        market,
+        market_session="us_equity_daily",
+    )
+
+    row = out.iloc[0]
+
+    assert row["decision_time"] == pd.Timestamp(
+        "2024-03-08T21:00:00Z"
+    )
+    assert row["entry_timestamp"] == pd.Timestamp(
+        "2024-03-11T13:30:00Z"
+    )
+
+
 def test_three_day_labels_use_next_open_and_t3_close():
     out = add_three_day_market_labels(
         _market()

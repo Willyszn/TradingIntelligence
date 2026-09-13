@@ -460,6 +460,175 @@ def build_fred_pit_features(
     return result
 
 
+
+def _us_equity_session_timestamps(
+    timestamps: pd.Series,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Build decision-close, next-session-open, and session-close timestamps.
+
+    Input timestamps are treated as session dates. This is required for daily
+    Stooq-style files whose timestamps are midnight UTC rather than exchange
+    session timestamps. The resulting timestamps are timezone-aware UTC.
+    """
+    raw = pd.to_datetime(
+        timestamps,
+        utc=True,
+        errors="coerce",
+    )
+
+    session_dates = pd.to_datetime(
+        raw.dt.tz_convert("UTC").dt.date,
+        errors="coerce",
+    )
+
+    local_midnight = session_dates.dt.tz_localize(
+        "America/New_York",
+        ambiguous="raise",
+        nonexistent="raise",
+    )
+
+    decision_time = (
+        local_midnight
+        + pd.Timedelta(hours=16)
+    ).dt.tz_convert("UTC")
+
+    session_open_time = (
+        local_midnight
+        + pd.Timedelta(hours=9, minutes=30)
+    ).dt.tz_convert("UTC")
+
+    return (
+        session_dates,
+        decision_time,
+        session_open_time,
+    )
+
+
+def add_three_day_us_equity_labels(
+    market: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build 3-session labels using US equity close/open session times."""
+    required = {
+        "symbol",
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    }
+
+    missing = sorted(required - set(market.columns))
+    if missing:
+        raise ValueError(
+            f"Market data missing columns: {missing}"
+        )
+
+    out = market.copy()
+    out["symbol"] = out["symbol"].astype(str)
+    out["timestamp"] = pd.to_datetime(
+        out["timestamp"],
+        utc=True,
+        errors="coerce",
+    )
+
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    ]:
+        out[column] = pd.to_numeric(
+            out[column],
+            errors="coerce",
+        )
+
+    out = out.dropna(
+        subset=[
+            "symbol",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]
+    ).copy()
+
+    if out.duplicated(["symbol", "timestamp"]).any():
+        raise ValueError(
+            "Duplicate market symbol/timestamp rows."
+        )
+
+    (
+        out["_session_date"],
+        out["decision_time"],
+        out["_session_open_time"],
+    ) = _us_equity_session_timestamps(
+        out["timestamp"]
+    )
+
+    out = out.sort_values(
+        ["symbol", "_session_date"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    grouped = out.groupby(
+        "symbol",
+        sort=False,
+    )
+
+    out["entry_timestamp"] = (
+        grouped["_session_open_time"].shift(-1)
+    )
+    out["entry_price"] = (
+        grouped["open"].shift(-1)
+    )
+
+    out["target_timestamp"] = (
+        grouped["decision_time"].shift(-3)
+    )
+    out["exit_price"] = (
+        grouped["close"].shift(-3)
+    )
+
+    out["target_return"] = (
+        out["exit_price"]
+        / out["entry_price"]
+        - 1.0
+    )
+    out["forward_return"] = out["target_return"]
+    out["forward_positive"] = (
+        out["target_return"] > 0
+    ).astype("Int64")
+
+    out["label_horizon_sessions"] = 3
+    out["decision_to_entry_sessions"] = 1
+
+    invalid_entry = (
+        out["entry_timestamp"].notna()
+        & (
+            out["entry_timestamp"]
+            <= out["decision_time"]
+        )
+    )
+    if invalid_entry.any():
+        raise AssertionError(
+            "US equity entry timestamp is not strictly "
+            "after the decision timestamp."
+        )
+
+    out = out.drop(
+        columns=[
+            "_session_date",
+            "_session_open_time",
+        ]
+    )
+
+    return out
+
+
 def add_three_day_market_labels(
     market: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -598,10 +767,22 @@ def build_unified_research_panel(
     sec_observations: pd.DataFrame | None = None,
     fred_observations: pd.DataFrame | None = None,
     security_master: pd.DataFrame | None = None,
+    *,
+    market_session: str = "us_equity_daily",
 ) -> pd.DataFrame:
-    panel = add_three_day_market_labels(
-        market
-    )
+    if market_session == "us_equity_daily":
+        panel = add_three_day_us_equity_labels(
+            market
+        )
+    elif market_session == "generic_daily":
+        panel = add_three_day_market_labels(
+            market
+        )
+    else:
+        raise ValueError(
+            "Unsupported market_session. Expected "
+            "'us_equity_daily' or 'generic_daily'."
+        )
 
     panel = panel.dropna(
         subset=[
