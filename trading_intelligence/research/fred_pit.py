@@ -1,5 +1,4 @@
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -15,6 +14,27 @@ REQUIRED_COLUMNS = {
 }
 
 
+def _utc_datetime_series(
+    values: pd.Series,
+) -> pd.Series:
+    return pd.to_datetime(
+        values,
+        utc=True,
+        errors="coerce",
+    )
+
+
+def _utc_timestamp(
+    value: str | pd.Timestamp,
+) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+
+    return ts.tz_convert("UTC")
+
+
 def load_fred_pit(
     path: str | Path | pd.DataFrame,
 ) -> pd.DataFrame:
@@ -25,6 +45,18 @@ def load_fred_pit(
             path,
             low_memory=False,
         )
+
+    # Persisted dataset uses observation_date; internal API uses date.
+    if "date" not in frame.columns:
+        if "observation_date" in frame.columns:
+            frame = frame.rename(
+                columns={"observation_date": "date"}
+            )
+        else:
+            raise ValueError(
+                "FRED data requires either 'date' or "
+                "'observation_date'."
+            )
 
     missing = sorted(
         REQUIRED_COLUMNS - set(frame.columns)
@@ -37,19 +69,16 @@ def load_fred_pit(
 
     out = frame.copy()
 
-    out["date"] = pd.to_datetime(
-        out["date"],
-        errors="coerce",
+    out["date"] = _utc_datetime_series(
+        out["date"]
     )
 
-    out["realtime_start"] = pd.to_datetime(
-        out["realtime_start"],
-        errors="coerce",
+    out["realtime_start"] = _utc_datetime_series(
+        out["realtime_start"]
     )
 
-    out["realtime_end"] = pd.to_datetime(
-        out["realtime_end"],
-        errors="coerce",
+    out["realtime_end"] = _utc_datetime_series(
+        out["realtime_end"]
     )
 
     out["value"] = pd.to_numeric(
@@ -57,16 +86,15 @@ def load_fred_pit(
         errors="coerce",
     )
 
-    if "available_date_conservative" not in out:
+    if "available_date_conservative" not in out.columns:
         out["available_date_conservative"] = (
             out["realtime_start"]
             + pd.Timedelta(days=1)
         )
     else:
         out["available_date_conservative"] = (
-            pd.to_datetime(
-                out["available_date_conservative"],
-                errors="coerce",
+            _utc_datetime_series(
+                out["available_date_conservative"]
             )
         )
 
@@ -100,14 +128,9 @@ def latest_vintage_asof(
 ) -> pd.DataFrame:
     out = load_fred_pit(observations)
 
-    decision = pd.Timestamp(
+    decision = _utc_timestamp(
         decision_time
     )
-
-    if decision.tzinfo is not None:
-        decision = decision.tz_convert(None)
-    else:
-        decision = decision.tz_localize(None)
 
     available = out[
         out["available_date_conservative"]
@@ -144,7 +167,7 @@ def align_fred_asof(
     decisions: pd.DataFrame,
     observations: pd.DataFrame,
 ) -> pd.DataFrame:
-    if "decision_time" not in decisions:
+    if "decision_time" not in decisions.columns:
         raise ValueError(
             "Decision frame missing columns: "
             "['decision_time']"
@@ -152,10 +175,8 @@ def align_fred_asof(
 
     dec = decisions.copy()
 
-    dec["decision_time"] = pd.to_datetime(
-        dec["decision_time"],
-        utc=True,
-        errors="coerce",
+    dec["decision_time"] = _utc_datetime_series(
+        dec["decision_time"]
     )
 
     dec = dec.dropna(
@@ -163,13 +184,12 @@ def align_fred_asof(
     ).copy()
 
     if "_decision_id" not in dec.columns:
-        dec["_decision_id"] = (
-            range(len(dec))
-        )
+        dec["_decision_id"] = range(len(dec))
 
+    # KEEP THIS UTC-AWARE.
+    # Do not use tz_convert(None).
     dec["_decision_date"] = (
         dec["decision_time"]
-        .dt.tz_convert(None)
         .dt.normalize()
     )
 
@@ -177,7 +197,16 @@ def align_fred_asof(
         observations
     )
 
-    frames = []
+    frames: list[pd.DataFrame] = []
+
+    decision_dates = (
+        dec[["_decision_date"]]
+        .drop_duplicates()
+        .sort_values(
+            "_decision_date",
+            kind="mergesort",
+        )
+    )
 
     for series_id, group in obs.groupby(
         "series_id",
@@ -193,31 +222,15 @@ def align_fred_asof(
             kind="mergesort",
         )
 
-        # Cache one answer per unique decision date.
-        decision_dates = (
-            dec[
-                [
-                    "_decision_date"
-                ]
-            ]
-            .drop_duplicates()
-            .sort_values(
-                "_decision_date",
-                kind="mergesort",
-            )
-        )
+        state_rows: list[dict[str, object]] = []
 
-        state_rows = []
-
-        for _, drow in decision_dates.iterrows():
-            decision_date = drow[
-                "_decision_date"
-            ]
-
+        for decision_date in decision_dates[
+            "_decision_date"
+        ]:
+            # Both sides are UTC-aware timestamps.
             available = group[
-                group[
-                    "available_date_conservative"
-                ] <= decision_date
+                group["available_date_conservative"]
+                <= decision_date
             ]
 
             if available.empty:
@@ -264,14 +277,12 @@ def align_fred_asof(
                     "realtime_end": candidate[
                         "realtime_end"
                     ],
-                    "available_date_conservative": (
-                        candidate[
-                            "available_date_conservative"
-                        ]
-                    ),
-                    "observation_date": (
-                        candidate["date"]
-                    ),
+                    "available_date_conservative": candidate[
+                        "available_date_conservative"
+                    ],
+                    "observation_date": candidate[
+                        "date"
+                    ],
                     "available": True,
                 }
             )
@@ -293,6 +304,7 @@ def align_fred_asof(
 
     if not frames:
         result = dec.copy()
+
         result["series_id"] = pd.NA
         result["value"] = pd.NA
         result["available"] = False
@@ -314,15 +326,13 @@ def align_fred_asof(
         .astype(bool)
     )
 
-    decision_dates = (
+    decision_dates_check = (
         result["decision_time"]
-        .dt.tz_convert(None)
         .dt.normalize()
     )
 
-    available_dates = pd.to_datetime(
-        result["available_date_conservative"],
-        errors="coerce",
+    available_dates = _utc_datetime_series(
+        result["available_date_conservative"]
     )
 
     leaked = (
@@ -330,7 +340,7 @@ def align_fred_asof(
         & available_dates.notna()
         & (
             available_dates
-            > decision_dates
+            > decision_dates_check
         )
     )
 
