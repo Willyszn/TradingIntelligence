@@ -427,16 +427,25 @@ def build_fred_pit_features(
                     pd.Timestamp(
                         item["decision_time"]
                     )
-                    .tz_convert(None)
-                    .normalize()
                 )
 
-                observation_date = (
-                    pd.Timestamp(
-                        item["observation_date"]
-                    )
-                    .normalize()
+                if decision_date.tzinfo is None:
+                    decision_date = decision_date.tz_localize("UTC")
+                else:
+                    decision_date = decision_date.tz_convert("UTC")
+
+                decision_date = decision_date.normalize()
+
+                observation_date = pd.Timestamp(
+                    item["observation_date"]
                 )
+
+                if observation_date.tzinfo is None:
+                    observation_date = observation_date.tz_localize("UTC")
+                else:
+                    observation_date = observation_date.tz_convert("UTC")
+
+                observation_date = observation_date.normalize()
 
                 row[
                     f"macro_{series_id}_age_days"
