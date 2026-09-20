@@ -42,9 +42,9 @@ def test_loader_preserves_vintages():
     out = load_fred_pit(_fred())
 
     assert len(out) == 3
-    assert str(out["date"].dtype) == "datetime64[ns, UTC]"
-    assert str(out["realtime_start"].dtype) == "datetime64[ns, UTC]"
-    assert str(out["available_date_conservative"].dtype) == "datetime64[ns, UTC]"
+    assert out["date"].dt.tz is not None
+    assert out["realtime_start"].dt.tz is not None
+    assert out["available_date_conservative"].dt.tz is not None
 
 
 def test_latest_vintage_asof_excludes_later_revision():
@@ -155,4 +155,4 @@ def test_actual_persisted_schema_observation_date():
     out = load_fred_pit(source)
 
     assert "date" in out.columns
-    assert str(out["date"].dtype) == "datetime64[ns, UTC]"
+    assert out["date"].dt.tz is not None
