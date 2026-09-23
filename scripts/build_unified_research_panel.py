@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -552,7 +552,7 @@ def build_panel(
         fred_csv
         or data_root
         / "macro"
-        / "fred_macro_vintages.csv"
+        / "fred_macro_pit_vintages.csv"
     )
 
     start_ts = _parse_date(start)
